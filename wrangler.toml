@@ -1,0 +1,41 @@
+name = "glt-group-admin-hook"
+main = "src/worker.ts"
+compatibility_date = "2023-01-01"
+
+[triggers]
+crons = []
+
+[vars]
+TG_BOT_USERNAME = "GLTAdminBot"
+TG_BOT_TIMEZONE = "Asia/Hong_Kong"
+TG_SPAM_RE = "拍车|门头|小白可带|无风险|看过来|拍汽车|公群已开|收款码|盘口|频道|搜群机器人|个人|主页|免费|登录|无需|私信|点我|电报|问讯|免vpn|联系|各类|引流|详情|头像|咨询|梯子|翻墙|接洽|vpn免费|请进|询问|征询|粉丝|点赞|网络专线|园区"
+TG_ALLOWED_CHAT_USERNAMES = "gltbottest,gaplo917,gaplotechd"
+TG_SILENCE_CONSENSUS_COMMAND = "/silence"
+TG_SILENCE_CONSENSUS_MIN_COUNT = 3
+TG_SILENCE_CONSENSUS_POSITIVE_RATIO = 0.7
+TG_SILENCE_CONSENSUS_RESTRICT_DURATION = 259200
+TG_SILENCE_CONSENSUS_POLL_DURATION = 86400
+TG_SILENCE_CONSENSUS_POLL_OPTIONS = "支持,不支持,棄權"
+TG_SILENCE_CONSENSUS_POLL_QUESTION_TEMPLATE = """\
+{datetime} HKT @{initUsername} 動議了群組共識投票。若 {pollDuration} 小時內總投票數超過 {minCount} 票以及支持百分比超過或等如 {positiveRatio}，系統將會立即限制該會員發言 {restrictDuration} 小時。
+
+當支持百分比下跌少於 {positiveRatio}，系統將會立即解除限制。\
+"""
+TG_SILENCE_CONSENSUS_POLL_STATUS_TEMPLATE = """\
+{datetime} HKT
+總投票數: {totalCount}
+支持百分比: {positiveRatio}%
+@{targetUsername} 狀態: {targetUserStatus}\
+"""
+TG_SILENCE_CONSENSUS_POLL_USER_STATUS_FREE_TEMPLATE = "自由"
+TG_SILENCE_CONSENSUS_POLL_USER_STATUS_FREE_WITH_GRACE_TEMPLATE = "自由，變動將於 1 分鐘後更新"
+TG_SILENCE_CONSENSUS_POLL_USER_STATUS_RESTRICTED_TEMPLATE = "被限制直至 {untilDate}"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tg-bot-d1"
+database_id = "beae4c22-8429-4e77-b6c3-1e87e7ba46de"
+
+# Secrets that should be set using wrangler:
+# npx wrangler secret put TG_BOT_TOKEN
+# npx wrangler secret put TG_HOOK_SECRET
