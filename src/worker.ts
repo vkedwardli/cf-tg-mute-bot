@@ -3,14 +3,13 @@ import { isSpamFn, unixEpoch, unixToTimezone, template } from './helpers'
 import { banChatMember, deleteMessage, editMessageText, restrictChatMember, sendMessage, sendPoll } from './tg-bot-api'
 import { Update } from 'node-telegram-bot-api'
 
-// noinspection JSUnusedGlobalSymbols
 export default {
-  async fetch(request: any, env: Env, ctx: any) {
+  async fetch(request: Request<unknown, IncomingRequestCfProperties<unknown>>, env: Env, ctx: ExecutionContext): Promise<Response> {
     return handleRequest(request, env)
   },
-}
+} satisfies ExportedHandler<Env>
 
-async function handleRequest(request: any, env: Env): Promise<Response> {
+async function handleRequest(request: Request<unknown, IncomingRequestCfProperties<unknown>>, env: Env): Promise<Response> {
   if (request.headers.get('x-telegram-bot-api-secret-token') !== env.TG_HOOK_SECRET) {
     return new Response('UNAUTHORIZED')
   }
