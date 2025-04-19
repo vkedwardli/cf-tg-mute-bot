@@ -174,11 +174,11 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
     const shouldSilence = totalCount >= +env.TG_SILENCE_CONSENSUS_MIN_COUNT && positiveRatio >= +env.TG_SILENCE_CONSENSUS_POSITIVE_RATIO
     const hasSilenceRecord = !!record.silence_status
     const targetUsername = record.target_username as string
+    const createdAt = record.created_at as number
+    const untilDate = createdAt + env.TG_SILENCE_CONSENSUS_RESTRICT_DURATION
 
     if (shouldSilence && !hasSilenceRecord) {
       console.log(`silence ${rid}: ${pollId}`)
-
-      const untilDate = unixEpoch() + env.TG_SILENCE_CONSENSUS_RESTRICT_DURATION
 
       const restrictResult = await restrictChatMember({ token, cid, uid: rid, untilDate })
 
@@ -208,7 +208,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
           }),
         })
       }
-    } else if (hasSilenceRecord) {
+    } else if (!shouldSilence && hasSilenceRecord) {
       console.log(`remove silence ${rid}: ${pollId}`)
 
       // the minimum `until_date` for telegram Bot API require current + 30 seconds
@@ -251,7 +251,11 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
           targetUsername,
           totalCount,
           positiveRatio: (positiveRatio * 100).toFixed(0),
-          targetUserStatus: env.TG_SILENCE_CONSENSUS_POLL_USER_STATUS_FREE_TEMPLATE,
+          targetUserStatus: !hasSilenceRecord
+            ? env.TG_SILENCE_CONSENSUS_POLL_USER_STATUS_FREE_TEMPLATE
+            : template(env.TG_SILENCE_CONSENSUS_POLL_USER_STATUS_RESTRICTED_TEMPLATE, {
+                untilDate: unixToTimezone(untilDate, env.TG_BOT_TIMEZONE),
+              }),
         }),
       })
     }
