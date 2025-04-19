@@ -203,7 +203,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
             totalCount,
             positiveRatio: (positiveRatio * 100).toFixed(0),
             targetUserStatus: template(env.TG_SILENCE_CONSENSUS_POLL_USER_STATUS_RESTRICTED_TEMPLATE, {
-              untilDate,
+              untilDate: unixToTimezone(untilDate, env.TG_BOT_TIMEZONE),
             }),
           }),
         })
