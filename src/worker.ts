@@ -56,7 +56,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
 
       if (isSpam(fullName) || isSpam(text)) {
         await banChatMember({ token, cid, uid, mid })
-
+        await deleteMessage({ token, cid, mid })
         // early return if the user is classified as spam
         return new Response('OK')
       }
