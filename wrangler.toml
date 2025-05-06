@@ -6,10 +6,10 @@ compatibility_date = "2023-01-01"
 crons = []
 
 [vars]
-TG_BOT_USERNAME = "GLTAdminBot"
+TG_BOT_USERNAME = "DXMuteBot"
 TG_BOT_TIMEZONE = "Asia/Hong_Kong"
 TG_SPAM_RE = "拍车|门头|小白可带|无风险|看过来|拍汽车|公群已开|收款码|盘口|频道|搜群机器人|个人|主页|免费|登录|无需|私信|点我|电报|问讯|免vpn|联系|各类|引流|详情|头像|咨询|梯子|翻墙|接洽|vpn免费|请进|询问|征询|粉丝|点赞|网络专线|园区"
-TG_ALLOWED_CHAT_USERNAMES = "gltbottest,gaplo917,gaplotechd"
+TG_ALLOWED_CHAT_USERNAMES = "GundamDX,edwardli"
 TG_SILENCE_CONSENSUS_COMMAND = "/silence"
 TG_SILENCE_CONSENSUS_MIN_COUNT = 3
 TG_SILENCE_CONSENSUS_POSITIVE_RATIO = 0.7
@@ -34,7 +34,7 @@ TG_SILENCE_CONSENSUS_POLL_USER_STATUS_RESTRICTED_TEMPLATE = "被限制直至 {un
 [[d1_databases]]
 binding = "DB"
 database_name = "tg-bot-d1"
-database_id = "beae4c22-8429-4e77-b6c3-1e87e7ba46de"
+database_id = "caa62e04-e5b3-458e-990b-dbcbf6c872e3"
 
 [observability.logs]
 enabled = true
