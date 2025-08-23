@@ -204,9 +204,9 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
   // process poll updates
   if (update.poll) {
     const pollId = update.poll.id
-    const positiveOption = update.poll.options[0]
-    const totalCount = update.poll.total_voter_count
-    const positiveCount = positiveOption?.voter_count ?? 0
+    const { options, total_voter_count: totalCount } = update.poll
+    const positiveCount = options[0]?.voter_count ?? 0
+    const negativeCount = options[1]?.voter_count ?? 0
 
     // upsert options record
     const { results } = await env.DB.prepare(
@@ -232,7 +232,8 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
 
     const cid = record.chat_id as number
     const rid = (record.target_user_id as number) ?? -1
-    const positiveRatio = totalCount === 0 ? 0 : positiveCount / totalCount
+    const decisionVoteCount = positiveCount + negativeCount
+    const positiveRatio = decisionVoteCount === 0 ? 0 : positiveCount / decisionVoteCount
     const shouldSilence = totalCount >= +env.TG_SILENCE_CONSENSUS_MIN_COUNT && positiveRatio >= +env.TG_SILENCE_CONSENSUS_POSITIVE_RATIO
     const hasSilenceRecord = !!record.silence_status
     const targetUsername = record.target_username as string
