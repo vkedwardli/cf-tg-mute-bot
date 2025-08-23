@@ -12,5 +12,8 @@ CREATE TABLE IF NOT EXISTS silence_poll
     positive_vote         INTEGER,
     silence_status        BOOLEAN,
     status_message_id     INTEGER,
+    is_admin              BOOLEAN,
+    admin_permissions     TEXT,
+    admin_custom_title    TEXT,
     created_at            INTEGER
 );

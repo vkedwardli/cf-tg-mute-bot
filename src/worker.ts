@@ -1,6 +1,16 @@
 import Env = Cloudflare.Env
 import { isSpamFn, unixEpoch, unixToTimezone, template } from './helpers'
-import { banChatMember, deleteMessage, editMessageText, restrictChatMember, sendMessage, sendPoll } from './tg-bot-api'
+import {
+  banChatMember,
+  deleteMessage,
+  editMessageText,
+  getChatMember,
+  promoteChatMember,
+  restrictChatMember,
+  setChatAdministratorCustomTitle,
+  sendMessage,
+  sendPoll,
+} from './tg-bot-api'
 import { Update } from 'node-telegram-bot-api'
 
 export default {
@@ -77,7 +87,58 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
     if (from && entities.length > 0) {
       // Scenario 4: Check if bot command consist of env.TG_SILENCE_CONSENSUS_COMMAND
       for (let entity of entities) {
-        if (entity.type === 'bot_command' && text?.startsWith(env.TG_SILENCE_CONSENSUS_COMMAND)) {
+        if (entity.type === 'bot_command' && text?.startsWith('/customtitle')) {
+          const reply_to_message = message?.reply_to_message
+          const rid = reply_to_message?.from?.id
+          const isBot = reply_to_message?.from?.is_bot
+          const customTitle = text.replace(/\/customtitle(?:@\w+)?\s*/, '').trim()
+
+          if (rid && !isBot && customTitle) {
+            const member = (await getChatMember({ token, cid, uid: from.id })) as any
+            if (member.status === 'creator' || member.status === 'administrator') {
+              const isFakeAdmin =
+                member.status === 'administrator' &&
+                !member.can_change_info &&
+                !member.can_delete_messages &&
+                !member.can_restrict_members &&
+                member.can_invite_users &&
+                !member.can_pin_messages &&
+                !member.can_post_stories &&
+                !member.can_edit_stories &&
+                !member.can_delete_stories &&
+                !member.can_manage_video_chats &&
+                !member.is_anonymous &&
+                !member.can_promote_members &&
+                !!member.custom_title
+
+              if (!isFakeAdmin) {
+                const success = await promoteChatMember({
+                  token,
+                  cid,
+                  uid: rid,
+                  permissions: {
+                    can_invite_users: true,
+                  },
+                })
+                if (success) {
+                  await setChatAdministratorCustomTitle({
+                    token,
+                    cid,
+                    uid: rid,
+                    customTitle,
+                  })
+                }
+              }
+            } else {
+              await sendMessage({
+                token,
+                cid,
+                text: env.TG_ADMIN_ONLY_COMMAND_TEXT,
+                reply_to_message_id: mid,
+              })
+            }
+          }
+        } else if (entity.type === 'bot_command' && text?.startsWith(env.TG_SILENCE_CONSENSUS_COMMAND)) {
           const uid = from.id
           const username = from.username ?? `${from.first_name ?? ''} ${from.last_name ?? ''}`
           const reply_to_message = message?.reply_to_message
@@ -128,7 +189,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
               await env.DB.prepare(
                 `
                   INSERT INTO silence_poll
-                  VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, unixepoch())
+                  VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, false, null, null, unixepoch())
               `,
               )
                 .bind(pollId, cid, uid, targetUsername, rid, rUsername ?? rFullName, targetMessage, silenceStatus, statusMessageId)
@@ -181,6 +242,54 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
     if (shouldSilence && !hasSilenceRecord) {
       console.log(`silence ${rid}: ${pollId}`)
 
+      const member = (await getChatMember({ token, cid, uid: rid })) as any
+      if (member.status === 'creator' || member.status === 'administrator') {
+        const isFakeAdmin =
+          member.status === 'administrator' &&
+          !member.can_change_info &&
+          !member.can_delete_messages &&
+          !member.can_restrict_members &&
+          member.can_invite_users &&
+          !member.can_pin_messages &&
+          !member.can_post_stories &&
+          !member.can_edit_stories &&
+          !member.can_delete_stories &&
+          !member.can_manage_video_chats &&
+          !member.is_anonymous &&
+          !member.can_promote_members &&
+          !!member.custom_title
+
+        if (isFakeAdmin) {
+          await promoteChatMember({ token, cid, uid: rid, permissions: { can_invite_users: false } })
+          await env.DB.prepare(
+            `
+              UPDATE silence_poll
+              SET is_admin = ?, admin_permissions = ?, admin_custom_title = ?
+              WHERE poll_id = ?
+            `,
+          )
+            .bind(true, JSON.stringify({ can_invite_users: true }), member.custom_title, pollId)
+            .all()
+        } else {
+          // is real admin, cannot restrict
+          await editMessageText({
+            token,
+            cid,
+            mid: record.status_message_id as number,
+            text: template(env.TG_SILENCE_CONSENSUS_POLL_STATUS_TEMPLATE, {
+              datetime: unixToTimezone(unixEpoch(), env.TG_BOT_TIMEZONE),
+              targetUsername,
+              totalCount,
+              positiveRatio: (positiveRatio * 100).toFixed(0),
+              targetUserStatus: template(env.TG_SILENCE_CONSENSUS_POLL_USER_STATUS_CANNOT_SILENCE_ADMIN_TEMPLATE, {
+                targetUsername,
+              }),
+            }),
+          })
+          return new Response('OK')
+        }
+      }
+
       const restrictResult = await restrictChatMember({ token, cid, uid: rid, untilDate })
 
       if (restrictResult) {
@@ -215,9 +324,47 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
       // the minimum `until_date` for telegram Bot API require current + 30 seconds
       const untilDate = unixEpoch() + 60
 
-      const restrictResult = await restrictChatMember({ token, cid, uid: rid, untilDate: untilDate })
+      const restrictResult = await restrictChatMember({
+        token,
+        cid,
+        uid: rid,
+        untilDate: untilDate,
+        permissions: {
+          can_send_messages: true,
+          can_send_audios: true,
+          can_send_documents: true,
+          can_send_photos: true,
+          can_send_videos: true,
+          can_send_video_notes: true,
+          can_send_voice_notes: true,
+          can_send_polls: true,
+          can_send_other_messages: true,
+          can_add_web_page_previews: true,
+          can_change_info: true,
+          can_invite_users: true,
+          can_pin_messages: true,
+          can_manage_topics: true,
+        },
+      })
 
       if (restrictResult) {
+        if (record.is_admin) {
+          const success = await promoteChatMember({
+            token,
+            cid,
+            uid: rid,
+            permissions: JSON.parse(record.admin_permissions as string),
+          })
+          if (success) {
+            await setChatAdministratorCustomTitle({
+              token,
+              cid,
+              uid: rid,
+              customTitle: record.admin_custom_title as string,
+            })
+          }
+        }
+
         await env.DB.prepare(
           `
               UPDATE silence_poll
