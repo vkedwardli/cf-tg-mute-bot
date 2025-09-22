@@ -205,7 +205,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, false, null, null, unixepoch())
               `,
               )
-                .bind(pollId, cid, uid, targetUsername, rid, rUsername ?? rFullName, targetMessage, silenceStatus, statusMessageId)
+                .bind(pollId, cid, uid, username, rid, rUsername ?? rFullName, targetMessage, silenceStatus, statusMessageId)
                 .all()
             }
           }
