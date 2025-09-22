@@ -2,7 +2,7 @@ import { Message, ChatMember, ChatAdministratorRights, ChatPermissions } from 'n
 
 const endpoint = 'https://api.telegram.org'
 
-async function botRequest<T>(token: string, tgMethod: string, payload: object): Promise<T> {
+async function botRequest<T>(token: string, tgMethod: string, payload: object): Promise<{ ok: boolean; result: T; description: string }> {
   return fetch(
     new Request(`${endpoint}/bot${token}/${tgMethod}`, {
       method: 'POST',
@@ -12,10 +12,10 @@ async function botRequest<T>(token: string, tgMethod: string, payload: object): 
       body: JSON.stringify(payload),
     }),
   )
-    .then((it) => it.json<{ ok: boolean; result: T }>())
+    .then((it) => it.json<{ ok: boolean; result: T; description: string }>())
     .then((it) => {
       console.log(tgMethod, it)
-      return it.result
+      return it
     })
 }
 
@@ -23,7 +23,7 @@ async function deleteMessage({ token, cid, mid }: { token: string; cid: number; 
   return botRequest(token, 'deleteMessage', {
     chat_id: cid,
     message_id: mid,
-  })
+  }).then((it) => it.ok)
 }
 
 async function banChatMember({ token, cid, uid, mid }: { token: string; cid: number; uid: number; mid: number }): Promise<boolean> {
@@ -31,7 +31,7 @@ async function banChatMember({ token, cid, uid, mid }: { token: string; cid: num
     chat_id: cid,
     user_id: uid,
     revoke_messages: true,
-  })
+  }).then((it) => it.ok)
 }
 
 async function sendPoll({
@@ -46,8 +46,8 @@ async function sendPoll({
   question: string
   mid: number
   options: string[]
-}): Promise<Message> {
-  return botRequest(token, 'sendPoll', {
+}): Promise<{ ok: boolean; result: Message; description: string }> {
+  return botRequest<Message>(token, 'sendPoll', {
     chat_id: cid,
     question: question,
     question_parse_mode: 'MarkdownV2',
@@ -62,10 +62,10 @@ async function sendPoll({
 }
 
 async function getChatMember({ token, cid, uid }: { token: string; cid: number; uid: number }): Promise<ChatMember> {
-  return botRequest(token, 'getChatMember', {
+  return botRequest<ChatMember>(token, 'getChatMember', {
     chat_id: cid,
     user_id: uid,
-  })
+  }).then((it) => it.result)
 }
 
 async function promoteChatMember({
@@ -83,7 +83,7 @@ async function promoteChatMember({
     chat_id: cid,
     user_id: uid,
     ...permissions,
-  })
+  }).then((it) => it.ok)
 }
 
 async function setChatAdministratorCustomTitle({
@@ -101,7 +101,7 @@ async function setChatAdministratorCustomTitle({
     chat_id: cid,
     user_id: uid,
     custom_title: customTitle,
-  })
+  }).then((it) => it.ok)
 }
 
 async function restrictChatMember({
@@ -139,7 +139,7 @@ async function restrictChatMember({
         can_manage_topics: false,
       }),
     until_date: untilDate,
-  })
+  }).then((it) => it.ok)
 }
 
 async function editMessageText({
@@ -152,8 +152,8 @@ async function editMessageText({
   cid: number
   mid: number
   text: string
-}): Promise<boolean | Message> {
-  return botRequest(token, 'editMessageText', {
+}): Promise<{ ok: boolean; result: Message; description: string }> {
+  return botRequest<Message>(token, 'editMessageText', {
     chat_id: cid,
     message_id: mid,
     text: text,
@@ -171,11 +171,11 @@ async function sendMessage({
   text: string
   reply_to_message_id?: number
 }): Promise<Message> {
-  return botRequest(token, 'sendMessage', {
+  return botRequest<Message>(token, 'sendMessage', {
     chat_id: cid,
     text: text,
     reply_to_message_id,
-  })
+  }).then((it) => it.result)
 }
 
 export {

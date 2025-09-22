@@ -168,6 +168,19 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
               options: env.TG_SILENCE_CONSENSUS_POLL_OPTIONS.split(','),
             })
 
+            if (!pollResp.ok) {
+              await sendMessage({
+                token,
+                cid,
+                text: pollResp.description.includes('message to be replied not found')
+                  ? env.TG_SILENCE_CONSENSUS_POLL_TARGET_MESSAGE_IS_REMOVED
+                  : env.TG_SILENCE_CONSENSUS_POLL_UNKNOWN_ERROR,
+              })
+              console.log(pollResp)
+
+              return new Response('OK')
+            }
+
             const statusResp = await sendMessage({
               token,
               cid,
@@ -180,7 +193,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
               }),
             })
 
-            const pollId = pollResp.poll?.id
+            const pollId = pollResp.result.poll?.id
             const statusMessageId = statusResp.message_id
             const silenceStatus = false
 
