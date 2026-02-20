@@ -178,6 +178,34 @@ async function sendMessage({
   }).then((it) => it.result)
 }
 
+async function getUserProfilePhotos({ token, uid }: { token: string; uid: number }): Promise<any> {
+  return botRequest<any>(token, 'getUserProfilePhotos', {
+    user_id: uid,
+    limit: 1,
+  }).then((it) => it.result)
+}
+
+async function sendPhoto({
+  token,
+  cid,
+  photo,
+  caption,
+  reply_to_message_id,
+}: {
+  token: string
+  cid: number
+  photo: string
+  caption?: string
+  reply_to_message_id?: number
+}): Promise<Message> {
+  return botRequest<Message>(token, 'sendPhoto', {
+    chat_id: cid,
+    photo: photo,
+    caption: caption,
+    reply_to_message_id,
+  }).then((it) => it.result)
+}
+
 export {
   deleteMessage,
   banChatMember,
@@ -188,4 +216,6 @@ export {
   getChatMember,
   promoteChatMember,
   setChatAdministratorCustomTitle,
+  getUserProfilePhotos,
+  sendPhoto,
 }

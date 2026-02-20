@@ -10,6 +10,8 @@ import {
   setChatAdministratorCustomTitle,
   sendMessage,
   sendPoll,
+  getUserProfilePhotos,
+  sendPhoto,
 } from './tg-bot-api'
 import { Update } from 'node-telegram-bot-api'
 
@@ -208,6 +210,40 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
                 .bind(pollId, cid, uid, username, rid, rUsername ?? rFullName, targetMessage, silenceStatus, statusMessageId)
                 .all()
             }
+          }
+        }
+      }
+    }
+  }
+
+  // process reaction updates
+  const updateAny = update as any
+  if (updateAny.message_reaction) {
+    const reaction = updateAny.message_reaction
+    const { chat, user, message_id: mid } = reaction
+    const cid = chat.id
+    const cUsername = chat.username
+    const uid = user?.id
+
+    if (uid && cUsername && env.TG_ALLOWED_CHAT_USERNAMES.split(',').find((it) => it === cUsername) !== undefined) {
+      const member = await getChatMember({ token, cid, uid })
+      if (member && (member.status === 'left' || member.status === 'kicked')) {
+        // Not a member!
+        console.log(`Banning non-member ${uid} for reacting to message ${mid} in ${cid}`)
+        const success = await banChatMember({ token, cid, uid, mid })
+
+        if (success && user) {
+          const fullName = `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim()
+          const caption = `嗚呀，又有新款靚女登場🤖\n🚫BANNED ${fullName}`
+
+          const photos = await getUserProfilePhotos({ token, uid })
+          if (photos && photos.total_count > 0 && photos.photos[0]) {
+            // Send the photo with highest resolution (last one in the array)
+            const photoArray = photos.photos[0]
+            const fileId = photoArray[photoArray.length - 1].file_id
+            await sendPhoto({ token, cid, photo: fileId, caption })
+          } else {
+            await sendMessage({ token, cid, text: caption })
           }
         }
       }
