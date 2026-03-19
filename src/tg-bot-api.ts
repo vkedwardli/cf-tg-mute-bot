@@ -40,12 +40,14 @@ async function sendPoll({
   question,
   mid,
   options,
+  openPeriod,
 }: {
   token: string
   cid: number
   question: string
   mid: number
   options: string[]
+  openPeriod?: number
 }): Promise<{ ok: boolean; result: Message; description: string }> {
   return botRequest<Message>(token, 'sendPoll', {
     chat_id: cid,
@@ -58,6 +60,7 @@ async function sendPoll({
     }),
     options: JSON.stringify(options.map((it) => ({ text: it }))),
     protect_content: true,
+    open_period: openPeriod,
   })
 }
 

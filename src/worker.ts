@@ -168,6 +168,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
                 restrictDuration: (+env.TG_SILENCE_CONSENSUS_RESTRICT_DURATION / 60 / 60).toFixed(0),
               }),
               options: env.TG_SILENCE_CONSENSUS_POLL_OPTIONS.split(','),
+              openPeriod: +env.TG_SILENCE_CONSENSUS_POLL_DURATION,
             })
 
             if (!pollResp.ok) {
@@ -262,16 +263,16 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
       `
           UPDATE silence_poll
           SET total_vote = ?, positive_vote = ?
-          WHERE poll_id = ? AND created_at >= ?
+          WHERE poll_id = ?
           RETURNING *;
       `,
     )
-      .bind(totalCount, positiveCount, pollId, unixEpoch() - env.TG_SILENCE_CONSENSUS_POLL_DURATION)
+      .bind(totalCount, positiveCount, pollId)
       .all()
 
     const record = results[0]
 
-    // if update return nothing, it is either expired 24 hours or not valid
+    // if update return nothing, it is not valid
     if (!record) {
       console.log(`record not found for ${pollId}`)
       return new Response('OK')
@@ -287,7 +288,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
     const hasSilenceRecord = !!record.silence_status
     const targetUsername = record.target_username as string
     const createdAt = record.created_at as number
-    const untilDate = createdAt + env.TG_SILENCE_CONSENSUS_RESTRICT_DURATION
+    const untilDate = createdAt + +env.TG_SILENCE_CONSENSUS_RESTRICT_DURATION
 
     if (shouldSilence && !hasSilenceRecord) {
       console.log(`silence ${rid}: ${pollId}`)
