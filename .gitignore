@@ -240,3 +240,7 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+
+# Cloudflare Secrets
+.dev.vars
+.env

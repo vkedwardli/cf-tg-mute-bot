@@ -15,5 +15,7 @@ CREATE TABLE IF NOT EXISTS silence_poll
     is_admin              BOOLEAN,
     admin_permissions     TEXT,
     admin_custom_title    TEXT,
-    created_at            INTEGER
+    created_at            INTEGER,
+    poll_message_id       INTEGER,
+    is_closed             BOOLEAN DEFAULT FALSE
 );

@@ -10,6 +10,7 @@ import {
   setChatAdministratorCustomTitle,
   sendMessage,
   sendPoll,
+  stopPoll,
   getUserProfilePhotos,
   sendPhoto,
 } from './tg-bot-api'
@@ -18,6 +19,9 @@ import { Update } from 'node-telegram-bot-api'
 export default {
   async fetch(request: Request<unknown, IncomingRequestCfProperties<unknown>>, env: Env, ctx: ExecutionContext): Promise<Response> {
     return handleRequest(request, env)
+  },
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(handleScheduled(env))
   },
 } satisfies ExportedHandler<Env>
 
@@ -168,7 +172,6 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
                 restrictDuration: (+env.TG_SILENCE_CONSENSUS_RESTRICT_DURATION / 60 / 60).toFixed(0),
               }),
               options: env.TG_SILENCE_CONSENSUS_POLL_OPTIONS.split(','),
-              openPeriod: +env.TG_SILENCE_CONSENSUS_POLL_DURATION,
             })
 
             if (!pollResp.ok) {
@@ -197,6 +200,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
             })
 
             const pollId = pollResp.result.poll?.id
+            const pollMessageId = pollResp.result.message_id
             const statusMessageId = statusResp.message_id
             const silenceStatus = false
 
@@ -205,10 +209,10 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
               await env.DB.prepare(
                 `
                   INSERT INTO silence_poll
-                  VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, false, null, null, unixepoch())
+                  VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, false, null, null, unixepoch(), ?, false)
               `,
               )
-                .bind(pollId, cid, uid, username, rid, rUsername ?? rFullName, targetMessage, silenceStatus, statusMessageId)
+                .bind(pollId, cid, uid, username, rid, rUsername ?? rFullName, targetMessage, silenceStatus, statusMessageId, pollMessageId)
                 .all()
             }
           }
@@ -289,6 +293,15 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
     const targetUsername = record.target_username as string
     const createdAt = record.created_at as number
     const untilDate = createdAt + +env.TG_SILENCE_CONSENSUS_RESTRICT_DURATION
+
+    // Opportunistic closure: if poll is expired but not yet closed in DB
+    const pollDuration = +env.TG_SILENCE_CONSENSUS_POLL_DURATION
+    const pollMessageId = record.poll_message_id as number
+    if (unixEpoch() - createdAt >= pollDuration && !record.is_closed && pollMessageId) {
+      console.log(`opportunistically closing poll ${pollId}`)
+      await stopPoll({ token, cid, mid: pollMessageId })
+      await env.DB.prepare('UPDATE silence_poll SET is_closed = true WHERE poll_id = ?').bind(pollId).all()
+    }
 
     if (shouldSilence && !hasSilenceRecord) {
       console.log(`silence ${rid}: ${pollId}`)
@@ -461,4 +474,42 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
   }
 
   return new Response('OK')
+}
+
+async function handleScheduled(env: Env) {
+  const token = env.TG_BOT_TOKEN
+  const pollDuration = +env.TG_SILENCE_CONSENSUS_POLL_DURATION
+  const now = unixEpoch()
+
+  const { results } = await (env.DB.prepare(
+    `
+    SELECT * FROM silence_poll
+    WHERE is_closed = false AND created_at < ?
+    `,
+  )
+    .bind(now - pollDuration)
+    .all())
+
+  if (results) {
+    for (const record of results) {
+      const cid = record.chat_id as number
+      const pmid = record.poll_message_id as number
+      const pollId = record.poll_id as string
+
+      if (pmid) {
+        console.log(`Closing poll ${pollId} (message ${pmid}) in chat ${cid}`)
+        await stopPoll({ token, cid, mid: pmid })
+      }
+
+      await env.DB.prepare(
+        `
+        UPDATE silence_poll
+        SET is_closed = true
+        WHERE poll_id = ?
+        `,
+      )
+        .bind(pollId)
+        .all()
+    }
+  }
 }

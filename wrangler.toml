@@ -3,7 +3,7 @@ main = "src/worker.ts"
 compatibility_date = "2023-01-01"
 
 [triggers]
-crons = []
+crons = ["0 * * * *"]
 
 [vars]
 TG_BOT_USERNAME = "DXMuteBot"

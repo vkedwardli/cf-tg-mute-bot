@@ -1,4 +1,4 @@
-import { Message, ChatMember, ChatAdministratorRights, ChatPermissions } from 'node-telegram-bot-api'
+import { Message, ChatMember, ChatAdministratorRights, ChatPermissions, Poll } from 'node-telegram-bot-api'
 
 const endpoint = 'https://api.telegram.org'
 
@@ -61,6 +61,21 @@ async function sendPoll({
     options: JSON.stringify(options.map((it) => ({ text: it }))),
     protect_content: true,
     open_period: openPeriod,
+  })
+}
+
+async function stopPoll({
+  token,
+  cid,
+  mid,
+}: {
+  token: string
+  cid: number
+  mid: number
+}): Promise<{ ok: boolean; result: Poll; description: string }> {
+  return botRequest<Poll>(token, 'stopPoll', {
+    chat_id: cid,
+    message_id: mid,
   })
 }
 
@@ -213,6 +228,7 @@ export {
   deleteMessage,
   banChatMember,
   sendPoll,
+  stopPoll,
   editMessageText,
   sendMessage,
   restrictChatMember,
