@@ -53,7 +53,7 @@ async function sendPoll({
     chat_id: cid,
     question: question,
     question_parse_mode: 'MarkdownV2',
-    is_anonymous: true,
+    is_anonymous: false,
     reply_parameters: JSON.stringify({
       message_id: mid,
       quote_position: 0,

@@ -19,3 +19,14 @@ CREATE TABLE IF NOT EXISTS silence_poll
     poll_message_id       INTEGER,
     is_closed             BOOLEAN DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS silence_poll_vote
+(
+    poll_id    TEXT,
+    user_id    INTEGER,
+    full_name  TEXT,
+    username   TEXT,
+    option_idx INTEGER,
+    updated_at INTEGER,
+    PRIMARY KEY (poll_id, user_id)
+);
