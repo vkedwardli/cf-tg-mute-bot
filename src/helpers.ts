@@ -31,6 +31,10 @@ function escapeMarkdownV2(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
 }
 
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 function template(string: string, binding: Record<string, any>): string {
   return string.replace(nargs, (match, i, index) => {
     if (string[index - 1] === '{' && string[index + match.length] === '}') {
@@ -41,4 +45,4 @@ function template(string: string, binding: Record<string, any>): string {
   })
 }
 
-export { unixToTimezone, isSpamFn, unixEpoch, template, escapeMarkdownV2 }
+export { unixToTimezone, isSpamFn, unixEpoch, template, escapeMarkdownV2, escapeHtml }

@@ -3,7 +3,7 @@ main = "src/worker.ts"
 compatibility_date = "2023-01-01"
 
 [triggers]
-crons = ["0 * * * *"]
+crons = ["* * * * *"]
 
 [vars]
 TG_BOT_USERNAME = "DXMuteBot"
@@ -36,6 +36,12 @@ TG_SILENCE_CONSENSUS_POLL_USER_STATUS_CANNOT_SILENCE_ADMIN_TEMPLATE = "就畀你
 TG_SILENCE_CONSENSUS_POLL_TARGET_MESSAGE_IS_REMOVED = "個 message 已經鏟咗，開唔切 vote :0)"
 TG_SILENCE_CONSENSUS_POLL_UNKNOWN_ERROR = "炒咗粉喇，admin 睇 log 啦 :0)"
 TG_ADMIN_ONLY_COMMAND_TEXT = "叫 admin 幫你加 custom title 啦"
+TG_ROSE_BOT_USERNAME = "MissRose_bot"
+TG_ROSE_CAPTCHA_WELCOME_PREFIX = "歡迎新血加入，請細讀以下事項："
+TG_ROSE_CAPTCHA_CLEANUP_DELAY = 300
+TG_ROSE_CAPTCHA_MATCH_WINDOW = 30
+TG_ROSE_CAPTCHA_MAX_PENDING_AGE = 900
+TG_ROSE_CAPTCHA_CLEANUP_ANNOUNCEMENT_TEMPLATE = "「{displayName}」驗證都唔撳，九成係騙子。已清理，世界線穩定。"
 
 [[d1_databases]]
 binding = "DB"

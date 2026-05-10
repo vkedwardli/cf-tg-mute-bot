@@ -1,5 +1,5 @@
 import Env = Cloudflare.Env
-import { escapeMarkdownV2, isSpamFn, unixEpoch, unixToTimezone, template } from './helpers'
+import { escapeHtml, escapeMarkdownV2, isSpamFn, unixEpoch, unixToTimezone, template } from './helpers'
 import {
   banChatMember,
   deleteMessage,
@@ -15,6 +15,15 @@ import {
   sendPhoto,
 } from './tg-bot-api'
 import { Update } from 'node-telegram-bot-api'
+
+type PendingJoinCleanup = {
+  chat_id: number
+  user_id: number
+  display_name: string
+  join_message_id: number
+  rose_welcome_message_id?: number | null
+  joined_at: number
+}
 
 export default {
   async fetch(request: Request<unknown, IncomingRequestCfProperties<unknown>>, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -58,8 +67,13 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
       return new Response('OK')
     }
 
+    if (isRoseCaptchaWelcome(env, message)) {
+      await attachRoseWelcomeMessage(env, cid, mid, message.date)
+    }
+
     if (new_chat_members) {
       for (let member of new_chat_members) {
+        await recordPendingJoin(env, cid, member.id, displayName(member), mid, message.date)
         if (isSpam(`${member.first_name ?? ''} ${member.last_name ?? ''}`)) {
           console.log(`Banning spam user ${member.id}`)
           await banChatMember({ token, cid, uid: member.id, mid })
@@ -67,7 +81,7 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
       }
     }
 
-    if (from && (isSpam(`${from.first_name ?? ''} ${from.last_name ?? ''}`) || isSpam(text))) {
+    if (from && !from.is_bot && (isSpam(`${from.first_name ?? ''} ${from.last_name ?? ''}`) || isSpam(text))) {
       console.log(`Banning spam sender ${from.id}`)
       await banChatMember({ token, cid, uid: from.id, mid })
       await deleteMessage({ token, cid, mid })
@@ -190,6 +204,62 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
   return new Response('OK')
 }
 
+function displayName(user: { id: number; first_name?: string; last_name?: string; username?: string }): string {
+  const fullName = `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim()
+  return fullName || (user.username ? `@${user.username}` : `${user.id}`)
+}
+
+function isRoseCaptchaWelcome(env: Env, message: any): boolean {
+  return message.from?.is_bot === true && message.from?.username === env.TG_ROSE_BOT_USERNAME && typeof message.text === 'string' && message.text.startsWith(env.TG_ROSE_CAPTCHA_WELCOME_PREFIX)
+}
+
+async function recordPendingJoin(env: Env, cid: number, uid: number, name: string, mid: number, joinedAt: number) {
+  console.log(`Recording pending join cleanup for ${uid}`)
+  await env.DB.prepare(
+    `
+      INSERT OR IGNORE INTO pending_join_cleanup
+        (chat_id, user_id, display_name, join_message_id, joined_at, processed)
+      VALUES (?, ?, ?, ?, ?, false)
+    `,
+  )
+    .bind(cid, uid, name, mid, joinedAt)
+    .run()
+}
+
+async function attachRoseWelcomeMessage(env: Env, cid: number, mid: number, roseMessageDate: number) {
+  const matchWindow = +env.TG_ROSE_CAPTCHA_MATCH_WINDOW
+  const { results } = (await env.DB.prepare(
+    `
+      SELECT chat_id, user_id, join_message_id
+      FROM pending_join_cleanup
+      WHERE chat_id = ?
+        AND processed = false
+        AND rose_welcome_message_id IS NULL
+        AND joined_at <= ?
+        AND joined_at >= ?
+    `,
+  )
+    .bind(cid, roseMessageDate, roseMessageDate - matchWindow)
+    .all()) as { results: any[] }
+
+  if (results.length !== 1) {
+    console.log(`Skipping Rose welcome ${mid}; matched ${results.length} pending joins`)
+    return
+  }
+
+  const match = results[0]
+  console.log(`Attaching Rose welcome ${mid} to join ${match.join_message_id}`)
+  await env.DB.prepare(
+    `
+      UPDATE pending_join_cleanup
+      SET rose_welcome_message_id = ?
+      WHERE chat_id = ? AND user_id = ? AND join_message_id = ?
+    `,
+  )
+    .bind(mid, match.chat_id, match.user_id, match.join_message_id)
+    .run()
+}
+
 async function refreshStatusMessage(token: string, env: Env, record: any) {
   try {
     const pollId = record.poll_id as string
@@ -271,6 +341,11 @@ async function refreshStatusMessage(token: string, env: Env, record: any) {
 }
 
 async function handleScheduled(env: Env) {
+  await closeExpiredSilencePolls(env)
+  await cleanupPendingJoins(env)
+}
+
+async function closeExpiredSilencePolls(env: Env) {
   try {
     const { results } = await env.DB.prepare(`SELECT * FROM silence_poll WHERE is_closed = false AND created_at < ?`).bind(unixEpoch() - +env.TG_SILENCE_CONSENSUS_POLL_DURATION).all()
     for (const record of results) {
@@ -278,6 +353,104 @@ async function handleScheduled(env: Env) {
       await env.DB.prepare(`UPDATE silence_poll SET is_closed = true WHERE poll_id = ?`).bind(record.poll_id).run()
     }
   } catch (err) {
-    console.error('Error in handleScheduled:', err)
+    console.error('Error in closeExpiredSilencePolls:', err)
   }
+}
+
+async function cleanupPendingJoins(env: Env) {
+  const token = env.TG_BOT_TOKEN
+  const now = unixEpoch()
+  const cleanupDelay = +env.TG_ROSE_CAPTCHA_CLEANUP_DELAY
+  const maxPendingAge = +env.TG_ROSE_CAPTCHA_MAX_PENDING_AGE
+
+  try {
+    const { results } = (await env.DB.prepare(
+      `
+        SELECT *
+        FROM pending_join_cleanup
+        WHERE processed = false
+          AND joined_at <= ?
+      `,
+    )
+      .bind(now - cleanupDelay)
+      .all()) as { results: PendingJoinCleanup[] }
+
+    for (const record of results) {
+      await cleanupPendingJoin(token, env, record, now, maxPendingAge)
+    }
+  } catch (err) {
+    console.error('Error in cleanupPendingJoins:', err)
+  }
+}
+
+async function cleanupPendingJoin(token: string, env: Env, record: PendingJoinCleanup, now: number, maxPendingAge: number) {
+  const cid = record.chat_id
+  const uid = record.user_id
+
+  try {
+    const member = (await getChatMember({ token, cid, uid })) as any
+    const status = member?.status
+
+    if (!status) {
+      throw new Error(`Missing chat member status for ${uid}`)
+    }
+
+    if (status === 'left' || status === 'kicked' || (status === 'restricted' && member.is_member === false)) {
+      console.log(`Cleaning failed Rose captcha join for ${uid}`)
+      await deleteMessage({ token, cid, mid: record.join_message_id })
+      if (record.rose_welcome_message_id) {
+        await deleteMessage({ token, cid, mid: record.rose_welcome_message_id })
+      }
+      await sendMessage({
+        token,
+        cid,
+        text: template(env.TG_ROSE_CAPTCHA_CLEANUP_ANNOUNCEMENT_TEMPLATE, {
+          displayName: userHtmlLink(record.user_id, record.display_name),
+        }),
+        parseMode: 'HTML',
+      })
+      await markPendingJoinProcessed(env, record, 'cleaned', now)
+      return
+    }
+
+    if (isCaptchaPendingRestriction(member)) {
+      if (now - record.joined_at >= maxPendingAge) {
+        console.log(`Expiring still-restricted Rose captcha join for ${uid}`)
+        await markPendingJoinProcessed(env, record, 'expired', now)
+      } else {
+        console.log(`Waiting for Rose captcha result for ${uid}; status is restricted`)
+      }
+      return
+    }
+
+    console.log(`Keeping Rose captcha join for ${uid}; status is ${status}`)
+    await markPendingJoinProcessed(env, record, 'kept', now)
+  } catch (err) {
+    if (now - record.joined_at >= maxPendingAge) {
+      console.error(`Expiring pending join cleanup for ${uid}:`, err)
+      await markPendingJoinProcessed(env, record, 'expired', now)
+    } else {
+      console.error(`Failed to check pending join cleanup for ${uid}:`, err)
+    }
+  }
+}
+
+function isCaptchaPendingRestriction(member: any): boolean {
+  return member?.status === 'restricted' && member?.is_member !== false && member?.can_send_messages === false
+}
+
+function userHtmlLink(uid: number, text: string): string {
+  return `<a href="tg://user?id=${uid}">${escapeHtml(text)}</a>`
+}
+
+async function markPendingJoinProcessed(env: Env, record: PendingJoinCleanup, result: string, processedAt: number) {
+  await env.DB.prepare(
+    `
+      UPDATE pending_join_cleanup
+      SET processed = true, result = ?, processed_at = ?
+      WHERE chat_id = ? AND user_id = ? AND join_message_id = ?
+    `,
+  )
+    .bind(result, processedAt, record.chat_id, record.user_id, record.join_message_id)
+    .run()
 }

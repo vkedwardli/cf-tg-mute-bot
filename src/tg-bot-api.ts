@@ -183,16 +183,19 @@ async function sendMessage({
   cid,
   text,
   reply_to_message_id,
+  parseMode,
 }: {
   token: string
   cid: number
   text: string
   reply_to_message_id?: number
+  parseMode?: 'HTML' | 'MarkdownV2'
 }): Promise<Message> {
   return botRequest<Message>(token, 'sendMessage', {
     chat_id: cid,
     text: text,
     reply_to_message_id,
+    parse_mode: parseMode,
   }).then((it) => it.result)
 }
 
