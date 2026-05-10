@@ -1,5 +1,5 @@
 import Env = Cloudflare.Env
-import { isSpamFn, unixEpoch, unixToTimezone, template } from './helpers'
+import { escapeMarkdownV2, isSpamFn, unixEpoch, unixToTimezone, template } from './helpers'
 import {
   banChatMember,
   deleteMessage,
@@ -117,8 +117,8 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
               token, cid, mid: rmid,
               question: template(env.TG_SILENCE_CONSENSUS_POLL_QUESTION_TEMPLATE, {
                 datetime: unixToTimezone(unixEpoch(), env.TG_BOT_TIMEZONE),
-                initUsername: username.replace('_', '\\_'),
-                targetUsername: targetUsername.replace('_', '\\_'),
+                initUsername: escapeMarkdownV2(username),
+                targetUsername: escapeMarkdownV2(targetUsername),
                 pollDuration: (+env.TG_SILENCE_CONSENSUS_POLL_DURATION / 3600).toFixed(0),
                 minCount: +env.TG_SILENCE_CONSENSUS_MIN_COUNT,
                 positiveRatio: (+env.TG_SILENCE_CONSENSUS_POSITIVE_RATIO * 100).toFixed(0),

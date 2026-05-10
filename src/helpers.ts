@@ -27,6 +27,10 @@ function unixToTimezone(timestamp: number, timezone: string): string {
 
 const nargs = /\{([0-9a-zA-Z_]+)}/g
 
+function escapeMarkdownV2(text: string): string {
+  return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+}
+
 function template(string: string, binding: Record<string, any>): string {
   return string.replace(nargs, (match, i, index) => {
     if (string[index - 1] === '{' && string[index + match.length] === '}') {
@@ -37,4 +41,4 @@ function template(string: string, binding: Record<string, any>): string {
   })
 }
 
-export { unixToTimezone, isSpamFn, unixEpoch, template }
+export { unixToTimezone, isSpamFn, unixEpoch, template, escapeMarkdownV2 }
