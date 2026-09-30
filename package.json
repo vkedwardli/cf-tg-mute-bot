@@ -5,6 +5,7 @@
   "main": "src/worker.js",
   "scripts": {
     "build": "wrangler types && tsc",
+    "test": "node --test test/*.test.cjs",
     "dev": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy"
   },

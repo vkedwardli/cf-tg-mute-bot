@@ -25,6 +25,18 @@ type PendingJoinCleanup = {
   joined_at: number
 }
 
+type CleanupAnnouncementMember = {
+  user_id: number
+  display_name: string
+}
+
+type CleanupAnnouncement = {
+  message_id: number | null
+  last_activity_message_id: number
+  members: string
+  omitted_count: number
+}
+
 export default {
   async fetch(request: Request<unknown, IncomingRequestCfProperties<unknown>>, env: Env, ctx: ExecutionContext): Promise<Response> {
     return handleRequest(request, env)
@@ -53,8 +65,8 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
     return new Response('BAD_REQUEST', { status: 400 })
   }
 
-  if (update.message) {
-    const message = update.message
+  const message = update.message ?? update.channel_post
+  if (message) {
     const { chat, from, message_id: mid, new_chat_members, left_chat_member, text } = message
     const cid = chat?.id
     const cUsername = chat?.username
@@ -91,6 +103,11 @@ async function handleRequest(request: Request<unknown, IncomingRequestCfProperti
     if (left_chat_member && from?.username === env.TG_BOT_USERNAME && isSpam(`${left_chat_member.first_name ?? ''} ${left_chat_member.last_name ?? ''}`)) {
       console.log(`Deleting leave message for spam user`)
       await deleteMessage({ token, cid, mid })
+    }
+
+    // Join/leave notices and captcha prompts must not split a quiet chat's summary.
+    if (!new_chat_members && !left_chat_member && !isRoseCaptchaWelcome(env, message) && from?.username !== env.TG_BOT_USERNAME) {
+      await recordChatActivity(env, cid, mid)
     }
 
     if (from && entities.length > 0) {
@@ -211,6 +228,19 @@ function displayName(user: { id: number; first_name?: string; last_name?: string
 
 function isRoseCaptchaWelcome(env: Env, message: any): boolean {
   return message.from?.is_bot === true && message.from?.username === env.TG_ROSE_BOT_USERNAME && typeof message.text === 'string' && message.text.startsWith(env.TG_ROSE_CAPTCHA_WELCOME_PREFIX)
+}
+
+async function recordChatActivity(env: Env, cid: number, mid: number) {
+  await env.DB.prepare(
+    `
+      INSERT INTO join_cleanup_announcement (chat_id, last_activity_message_id)
+      VALUES (?, ?)
+      ON CONFLICT (chat_id) DO UPDATE SET
+        last_activity_message_id = MAX(last_activity_message_id, excluded.last_activity_message_id)
+    `,
+  )
+    .bind(cid, mid)
+    .run()
 }
 
 async function recordPendingJoin(env: Env, cid: number, uid: number, name: string, mid: number, joinedAt: number) {
@@ -364,19 +394,49 @@ async function cleanupPendingJoins(env: Env) {
   const maxPendingAge = +env.TG_ROSE_CAPTCHA_MAX_PENDING_AGE
 
   try {
-    const { results } = (await env.DB.prepare(
+    const { results: chats } = await env.DB.prepare(
       `
-        SELECT *
+        SELECT DISTINCT chat_id
         FROM pending_join_cleanup
         WHERE processed = false
           AND joined_at <= ?
       `,
     )
       .bind(now - cleanupDelay)
-      .all()) as { results: PendingJoinCleanup[] }
+      .all<{ chat_id: number }>()
 
-    for (const record of results) {
-      await cleanupPendingJoin(token, env, record, now, maxPendingAge)
+    for (const { chat_id: cid } of chats) {
+      // A persisted lease prevents overlapping cron runs from posting two summaries.
+      await env.DB.prepare('INSERT OR IGNORE INTO join_cleanup_announcement (chat_id) VALUES (?)').bind(cid).run()
+      const lockedUntil = unixEpoch() + 300
+      const { results: lock } = await env.DB.prepare(
+        `UPDATE join_cleanup_announcement SET locked_until = ? WHERE chat_id = ? AND locked_until < ? RETURNING chat_id`,
+      )
+        .bind(lockedUntil, cid, unixEpoch())
+        .all()
+      if (lock.length === 0) continue
+
+      try {
+        // Re-read after acquiring the lease; another run may have processed these joins.
+        const { results } = await env.DB.prepare(
+          `SELECT * FROM pending_join_cleanup WHERE chat_id = ? AND processed = false AND joined_at <= ?
+           ORDER BY joined_at, join_message_id, user_id`,
+        )
+          .bind(cid, now - cleanupDelay)
+          .all<PendingJoinCleanup>()
+        const cleaned: PendingJoinCleanup[] = []
+        for (const record of results) {
+          if (await cleanupPendingJoin(token, env, record, now, maxPendingAge)) cleaned.push(record)
+        }
+        if (cleaned.length > 0) await announceCleanedJoins(env, cid, cleaned, now)
+      } catch (err) {
+        // Keep failed announcements pending so the next cron run can retry them.
+        console.error(`Error announcing join cleanup in chat ${cid}:`, err)
+      } finally {
+        await env.DB.prepare('UPDATE join_cleanup_announcement SET locked_until = 0 WHERE chat_id = ? AND locked_until = ?')
+          .bind(cid, lockedUntil)
+          .run()
+      }
     }
   } catch (err) {
     console.error('Error in cleanupPendingJoins:', err)
@@ -401,16 +461,7 @@ async function cleanupPendingJoin(token: string, env: Env, record: PendingJoinCl
       if (record.rose_welcome_message_id) {
         await deleteMessage({ token, cid, mid: record.rose_welcome_message_id })
       }
-      await sendMessage({
-        token,
-        cid,
-        text: template(env.TG_ROSE_CAPTCHA_CLEANUP_ANNOUNCEMENT_TEMPLATE, {
-          displayName: userHtmlLink(record.user_id, record.display_name),
-        }),
-        parseMode: 'HTML',
-      })
-      await markPendingJoinProcessed(env, record, 'cleaned', now)
-      return
+      return true
     }
 
     if (isCaptchaPendingRestriction(member)) {
@@ -433,6 +484,58 @@ async function cleanupPendingJoin(token: string, env: Env, record: PendingJoinCl
       console.error(`Failed to check pending join cleanup for ${uid}:`, err)
     }
   }
+}
+
+async function announceCleanedJoins(env: Env, cid: number, cleaned: PendingJoinCleanup[], now: number) {
+  const state = await env.DB.prepare('SELECT * FROM join_cleanup_announcement WHERE chat_id = ?').bind(cid).first<CleanupAnnouncement>()
+  const canAppend = state?.message_id != null && state.last_activity_message_id < state.message_id
+  let mid = canAppend ? state.message_id : null
+  const members: CleanupAnnouncementMember[] = canAppend ? JSON.parse(state.members) : []
+  let omittedCount = canAppend ? state.omitted_count : 0
+  members.push(...cleaned.map(({ user_id, display_name }) => ({ user_id, display_name })))
+
+  // Keep one message even during long quiet periods. Count older names if the text fills up.
+  const render = () => {
+    const names = members.map((member) => `「${userHtmlLink(member.user_id, member.display_name)}」`).join('，')
+    return template(env.TG_ROSE_CAPTCHA_CLEANUP_ANNOUNCEMENT_TEMPLATE, {
+      displayNames: names + (omittedCount ? `${names ? '，' : ''}另有 ${omittedCount} 人` : ''),
+    })
+  }
+  let text = render()
+  // Measuring the HTML source is conservative: Telegram's limit is after entity parsing.
+  while (text.length > 4096 && members.length > 0) {
+    members.shift()
+    omittedCount++
+    text = render()
+  }
+
+  if (mid !== null) {
+    const result = await editMessageText({ token: env.TG_BOT_TOKEN, cid, mid, text, parseMode: 'HTML' })
+    if (!result.ok && !result.description?.includes('message is not modified')) {
+      if (result.description?.includes('message to edit not found')) {
+        mid = null
+      } else {
+        throw new Error(`Failed to edit cleanup announcement: ${result.description}`)
+      }
+    }
+  }
+  if (mid === null) {
+    const message = await sendMessage({ token: env.TG_BOT_TOKEN, cid, text, parseMode: 'HTML' })
+    if (!message?.message_id) throw new Error('Failed to send cleanup announcement')
+    mid = message.message_id
+  }
+
+  // Commit the summary and its joins together. Preserve any activity received during the API call.
+  await env.DB.batch([
+    env.DB.prepare('UPDATE join_cleanup_announcement SET message_id = ?, members = ?, omitted_count = ? WHERE chat_id = ?')
+      .bind(mid, JSON.stringify(members), omittedCount, cid),
+    ...cleaned.map((record) =>
+      env.DB.prepare(
+        `UPDATE pending_join_cleanup SET processed = true, result = 'cleaned', processed_at = ?
+         WHERE chat_id = ? AND user_id = ? AND join_message_id = ?`,
+      ).bind(now, cid, record.user_id, record.join_message_id),
+    ),
+  ])
 }
 
 function isCaptchaPendingRestriction(member: any): boolean {

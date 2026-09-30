@@ -47,3 +47,13 @@ CREATE TABLE IF NOT EXISTS pending_join_cleanup
 
 CREATE INDEX IF NOT EXISTS pending_join_cleanup_pending_idx
     ON pending_join_cleanup (processed, joined_at);
+
+CREATE TABLE IF NOT EXISTS join_cleanup_announcement
+(
+    chat_id                  INTEGER PRIMARY KEY,
+    message_id               INTEGER,
+    last_activity_message_id INTEGER NOT NULL DEFAULT 0,
+    members                  TEXT NOT NULL DEFAULT '[]',
+    omitted_count            INTEGER NOT NULL DEFAULT 0,
+    locked_until             REAL NOT NULL DEFAULT 0
+);

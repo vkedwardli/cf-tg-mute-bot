@@ -165,16 +165,19 @@ async function editMessageText({
   cid,
   mid,
   text,
+  parseMode,
 }: {
   token: string
   cid: number
   mid: number
   text: string
+  parseMode?: 'HTML' | 'MarkdownV2'
 }): Promise<{ ok: boolean; result: Message; description: string }> {
   return botRequest<Message>(token, 'editMessageText', {
     chat_id: cid,
     message_id: mid,
     text: text,
+    parse_mode: parseMode,
   })
 }
 
